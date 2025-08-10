@@ -1,200 +1,88 @@
+<!-- static/index.html -->
+
 <!doctype html>
 <html lang="es">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>TARS Web Assistant</title>
-  <style>
-    body { font-family: system-ui, sans-serif; margin: 2rem; }
-    .row { display: flex; gap: 1rem; align-items: center; }
-    #micBtn { padding: .8rem 1.2rem; border: 0; border-radius: 10px; background: #111; color: #fff; cursor: pointer; }
-    #micBtn.listening { background: #d32f2f; }
-    #you, #ai { white-space: pre-wrap; padding: .8rem; border-radius: 8px; }
-    #you { background: #f2f2f2; }
-    #ai { background: #eef7ff; }
-  </style>
+  <!-- 1. Enlazamos nuestra hoja de estilos CSS -->
+  <link rel="stylesheet" href="css/styles.css">
 </head>
 <body>
-  <h1>🎙️ TARS</h1>
-  <div class="row">
-    <button id="micBtn">Mantén pulsado para hablar</button>
-    <span id="status">listo</span>
+
+  <!-- contenido HTML (la estructura) -->
+  <div class="app" role="application" aria-label="TARS Web Assistant">
+    <div class="panel" aria-live="polite">
+      <div class="header">
+        <div class="title">
+          <div class="logo">T</div>
+          <div>
+            <h1>TARS</h1>
+            <div class="hdr-sub">Asistente personal — voz y texto</div>
+          </div>
+        </div>
+
+        <div class="session" title="Session">
+          <small id="sessionIdPreview">session: —</small>
+          <button id="copySession" class="small" title="Copiar sessionId">Copiar</button>
+        </div>
+      </div>
+
+      <div class="history" id="history" aria-live="polite" role="log"></div>
+
+      <div class="controls" aria-hidden="false">
+        <div class="mic-wrap">
+          <button id="micBtn" title="Mantén pulsado para hablar">🎤</button>
+          <div class="status">
+            <div class="state" id="status">listo</div>
+            <div class="meta" id="meta">presiona y habla</div>
+          </div>
+        </div>
+        <div style="flex:1; display:flex; align-items:center;">
+          <div class="typing" id="typingIndicator" aria-hidden="true" style="visibility:hidden">
+            <div style="width:8px;height:8px;border-radius:50%;background:var(--accent);opacity:.18"></div>
+            <div style="color:var(--muted)">TARS está escribiendo</div>
+            <div class="dots" style="margin-left:auto">
+              <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <aside class="side" aria-label="Controles">
+      <div class="card">
+        <label for="voices">Voz (TTS)</label>
+        <select id="voices" aria-label="Selector de voz"></select>
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <label for="vol">Volumen</label>
+          <input id="vol" type="range" min="0" max="1" step="0.05" value="1">
+        </div>
+        <div style="display:flex;gap:8px">
+          <button id="stopSpeak" class="small">Parar habla</button>
+          <button id="clearChat" class="small">Limpiar chat</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <label>Waveform (mic)</label>
+        <canvas id="wave" aria-hidden="true"></canvas>
+        <small style="color:var(--muted)">Visual del nivel de entrada de audio (permiso requerido)</small>
+      </div>
+
+      <div class="card">
+        <label>Sesión / Debug</label>
+        <div><small id="sessionDebug" style="color:var(--muted)">sessionId: —</small></div>
+        <div style="margin-top:6px;color:var(--muted);font-size:0.85rem">
+          Endpoint: <code style="background:transparent;color:var(--accent)">http://localhost:8000</code>
+        </div>
+      </div>
+    </aside>
   </div>
-  <h3>Tú</h3>
-  <div id="you"></div>
-  <h3>TARS</h3>
-  <div id="ai"></div>
 
-  <script>
-    const API_BASE = "http://localhost:8000"; // cámbialo en prod
-    let sessionId = localStorage.getItem("sessionId");
-    let recognition, recognizing = false;
-    let voices = [], esVoice = null;
-    let speaking = false;
-
-    // Inicializa sesión en el backend
-    async function ensureSession() {
-      if (!sessionId) {
-        const r = await fetch(`${API_BASE}/session`);
-        const j = await r.json();
-        sessionId = j.sessionId;
-        localStorage.setItem("sessionId", sessionId);
-      }
-    }
-
-    // TTS: selecciona una voz en español si existe
-    function pickVoice() {
-      voices = window.speechSynthesis.getVoices();
-      esVoice = voices.find(v => v.lang?.toLowerCase().startsWith("es") && /google|microsoft|spanish/i.test(v.name)) ||
-               voices.find(v => v.lang?.toLowerCase().startsWith("es")) ||
-               null;
-    }
-    window.speechSynthesis.onvoiceschanged = pickVoice; pickVoice();
-
-    // Hablar (interrumpible)
-    function speak(text) {
-      if (!text || !window.speechSynthesis) return;
-      const u = new SpeechSynthesisUtterance(text);
-      u.lang = esVoice?.lang || "es-ES";
-      u.voice = esVoice || null;
-      u.rate = 1.0; u.pitch = 1.0;
-      speaking = true;
-      u.onend = () => { speaking = false; };
-      speechSynthesis.speak(u);
-    }
-
-    // Corta cualquier habla en curso (barge-in)
-    function stopSpeaking() {
-      if (window.speechSynthesis && speechSynthesis.speaking) {
-        speechSynthesis.cancel();
-        speaking = false;
-      }
-    }
-
-    // STT del navegador (Chrome/Edge; Safari móvil limitado; Firefox no)
-    function setupSTT() {
-      const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-      if (!SR) {
-        document.getElementById('status').textContent = "Tu navegador no soporta reconocimiento de voz. Usa entrada de texto o Cloud STT.";
-        return null;
-      }
-      const r = new SR();
-      r.lang = "es-ES";
-      r.interimResults = true;
-      r.continuous = true;
-      r.maxAlternatives = 1;
-      return r;
-    }
-    recognition = setupSTT();
-
-    const micBtn = document.getElementById("micBtn");
-    const statusEl = document.getElementById("status");
-    const youEl = document.getElementById("you");
-    const aiEl = document.getElementById("ai");
-
-    // Mantener pulsado para hablar
-    micBtn.addEventListener("mousedown", startListening);
-    micBtn.addEventListener("touchstart", (e)=>{ e.preventDefault(); startListening(); }, {passive:false});
-    document.addEventListener("mouseup", stopListening);
-    document.addEventListener("touchend", stopListening);
-
-    function startListening() {
-      if (!recognition) return;
-      stopSpeaking(); // barge-in
-      if (recognizing) return;
-      recognizing = true;
-      micBtn.classList.add("listening");
-      statusEl.textContent = "escuchando...";
-      youEl.textContent = "";
-      recognition.start();
-
-      let finalText = "";
-      recognition.onresult = (e) => {
-        let interim = "";
-        for (let i=e.resultIndex; i<e.results.length; i++){
-          const res = e.results[i];
-          if (res.isFinal) finalText += res[0].transcript + " ";
-          else interim += res[0].transcript;
-        }
-        youEl.textContent = finalText + (interim ? ` (${interim})` : "");
-      };
-
-      recognition.onerror = (e) => {
-        statusEl.textContent = `error STT: ${e.error}`;
-      };
-    }
-
-    function stopListening() {
-      if (!recognition || !recognizing) return;
-      recognizing = false;
-      micBtn.classList.remove("listening");
-      statusEl.textContent = "pensando...";
-      recognition.onend = () => {
-        const text = youEl.textContent.replace(/\s+KATEX_INLINE_OPEN.+KATEX_INLINE_CLOSE\s*$/, "").trim();
-        if (text) {
-          streamAI(text);
-        } else {
-          statusEl.textContent = "sin entrada";
-        }
-      };
-      recognition.stop();
-    }
-
-    // Streaming de respuesta y TTS frase a frase
-    async function streamAI(message) {
-      await ensureSession();
-      aiEl.textContent = "";
-      stopSpeaking();
-
-      const res = await fetch(`${API_BASE}/chat/stream`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message, sessionId }),
-      });
-
-      // Actualiza session id si backend creó una nueva
-      const sidHeader = res.headers.get("X-Session-Id");
-      if (sidHeader && sidHeader !== sessionId) {
-        sessionId = sidHeader;
-        localStorage.setItem("sessionId", sessionId);
-      }
-
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder("utf-8");
-      let buffer = "";
-
-      const flushSentences = () => {
-        // Emite frases completas para TTS
-        const parts = buffer.split(/([\.!\?…]+)\s/);
-        while (parts.length > 2) {
-          const sentence = (parts.shift() + (parts.shift() || "")) || "";
-          const clean = sentence.trim();
-          if (clean) {
-            aiEl.textContent += clean + " ";
-            speak(clean);
-          }
-        }
-        buffer = parts.join("");
-      };
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        const chunk = decoder.decode(value, { stream: true });
-        buffer += chunk;
-        flushSentences();
-      }
-      // Frase final si quedó algo
-      const leftover = buffer.trim();
-      if (leftover) {
-        aiEl.textContent += leftover + " ";
-        speak(leftover);
-      }
-      statusEl.textContent = "listo";
-    }
-
-    // Inicio
-    ensureSession();
-  </script>
+  <!-- 2. Enlazamos nuestro archivo JavaScript. 'defer' es importante para
+          que se ejecute después de que el HTML se haya cargado. -->
+  <script src="js/main.js" defer></script>
 </body>
 </html>
