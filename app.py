@@ -24,6 +24,7 @@ model = genai.GenerativeModel(
         "Si no estás seguro, pregunta y propone opciones."
     ),
 )
+# ...
 
 app = FastAPI()
 
@@ -40,9 +41,11 @@ sessions = {}
 # --- Endpoint para servir el index.html ---
 @app.get("/", response_class=HTMLResponse)
 async def read_root():
+    # index.html en una carpeta llamada 'static'
     with open("static/index.html") as f:
         return HTMLResponse(content=f.read(), status_code=200)
 
+# --- RUTAS DE API ---
 @app.get("/session")
 def new_session():
     sid = str(uuid.uuid4())
@@ -51,6 +54,7 @@ def new_session():
 
 @app.post("/chat/stream")
 async def chat_stream(req: Request):
+    # ... (código de chat_stream) ...
     body = await req.json()
     text = (body.get("message") or "").strip()
     sid = body.get("sessionId")
@@ -74,3 +78,8 @@ async def chat_stream(req: Request):
 
     headers = {"X-Session-Id": sid}
     return StreamingResponse(generate(), media_type="text/plain; charset=utf-8", headers=headers)
+
+# --- Montar el directorio estático ---
+# Esto permite que cualquier otro archivo (CSS, JS, imágenes) en la carpeta 'static'
+# sea accesible directamente. Aunque tu JS/CSS está en el HTML, es una buena práctica.
+app.mount("/", StaticFiles(directory="static", html = True), name="static")
