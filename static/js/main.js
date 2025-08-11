@@ -34,7 +34,11 @@ function appendMessage(text, who="ai", opts={}){
   el.textContent = text;
   if (opts.small) el.style.fontSize = '0.95rem';
   historyEl.appendChild(el);
+
+  // El método más fiable para un chat:
+  // Siempre mueve la barra de scroll hasta el fondo.
   historyEl.scrollTop = historyEl.scrollHeight;
+  
   return el;
 }
 
