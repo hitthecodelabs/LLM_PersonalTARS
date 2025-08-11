@@ -14,15 +14,17 @@ load_dotenv()
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
 if not GEMINI_API_KEY:
     raise RuntimeError("Falta GEMINI_API_KEY")
-MODEL_NAME = os.getenv("GENAI_MODEL", "gemini-1.5-flash")
+# MODEL_NAME = os.getenv("GENAI_MODEL", "gemini-1.5-flash")
+# MODEL_NAME = os.getenv("GENAI_MODEL", "gemma-3-27b-it")
+MODEL_NAME = os.getenv("GENAI_MODEL", "gemini-2.5-flash-lite")
 genai.configure(api_key=GEMINI_API_KEY)
 model = genai.GenerativeModel(
     MODEL_NAME,
-    system_instruction=(
-        "Eres TARS, un asistente conversacional en tiempo real. "
-        "Respondes breve, claro y útil, en español por defecto. "
-        "Si no estás seguro, pregunta y propone opciones."
-    ),
+    # system_instruction=( # deactivate for Gemma models
+    #     "Eres TARS, un asistente conversacional en tiempo real. "
+    #     "Respondes breve, claro y útil, en español por defecto. "
+    #     "Si no estás seguro, pregunta y propone opciones."
+    # ),
 )
 # ...
 
@@ -70,11 +72,20 @@ async def chat_stream(req: Request):
         try:
             response = chat.send_message(text, stream=True)
             for chunk in response:
-                if getattr(chunk, "text", None):
+                if hasattr(chunk, 'text'):
                     yield chunk.text
-            response.resolve()
+        
         except Exception as e:
-            yield f"\n[error] {e}"
+            # Comprobamos si el nombre de la clase de la excepción es 'InvalidOperation'.
+            if type(e).__name__ == 'InvalidOperation':
+                # Si lo es, es el error benigno de fin de stream. Lo ignoramos.
+                print("Stream finalizado correctamente (manejando InvalidOperation).")
+                pass
+            else:
+                # Si es cualquier otro tipo de error, es un problema real. Lo registramos y notificamos.
+                print(f"Ha ocurrido un error INESPERADO durante el streaming: {e}")
+                # yield f"\n[error] Lo siento, ocurrió un error inesperado al generar la respuesta."
+
 
     headers = {"X-Session-Id": sid}
     return StreamingResponse(generate(), media_type="text/plain; charset=utf-8", headers=headers)
